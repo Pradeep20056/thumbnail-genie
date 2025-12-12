@@ -7,7 +7,16 @@ import { HistoryPanel } from "@/components/HistoryPanel";
 import { BackgroundEffects } from "@/components/BackgroundEffects";
 import { Loader } from "@/components/Loader";
 import { type TemplateType } from "@/components/TemplateSelector";
+import { type TextPosition } from "@/components/TextOverlayControls";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+
+interface TextStyle {
+  fontSize: number;
+  color: string;
+  shadowColor: string;
+  shadowBlur: number;
+}
 
 interface HistoryItem {
   id: string;
@@ -17,53 +26,107 @@ interface HistoryItem {
   createdAt: Date;
 }
 
-// Sample thumbnails for demo (these will be replaced with AI-generated ones when backend is connected)
-const sampleImages = [
-  "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1280&h=720&fit=crop",
-  "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?w=1280&h=720&fit=crop",
-  "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1280&h=720&fit=crop",
-  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1280&h=720&fit=crop",
-  "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1280&h=720&fit=crop",
-];
-
 const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [currentTitle, setCurrentTitle] = useState("");
   const [currentTemplate, setCurrentTemplate] = useState<TemplateType>("cinematic");
+  const [currentOverlayText, setCurrentOverlayText] = useState("");
+  const [currentTextPosition, setCurrentTextPosition] = useState<TextPosition>("center");
+  const [currentTextStyle, setCurrentTextStyle] = useState<TextStyle>({
+    fontSize: 48,
+    color: "#ffffff",
+    shadowColor: "#000000",
+    shadowBlur: 10,
+  });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
-  const generateThumbnail = useCallback(async (text: string, template: TemplateType) => {
+  const generateThumbnail = useCallback(async (
+    text: string,
+    template: TemplateType,
+    overlayText: string,
+    textPosition: TextPosition,
+    textStyle: TextStyle
+  ) => {
     setIsLoading(true);
     setCurrentTitle(text);
     setCurrentTemplate(template);
+    setCurrentOverlayText(overlayText);
+    setCurrentTextPosition(textPosition);
+    setCurrentTextStyle(textStyle);
 
-    // Simulate AI generation delay
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      console.log("Calling generate-thumbnail function...");
+      
+      const { data, error } = await supabase.functions.invoke("generate-thumbnail", {
+        body: {
+          textInput: text,
+          template,
+          overlayText,
+          textPosition,
+        },
+      });
 
-    // For demo, use sample images (replace with actual AI call when backend is ready)
-    const randomImage = sampleImages[Math.floor(Math.random() * sampleImages.length)];
-    
-    setCurrentImage(randomImage);
-    setIsLoading(false);
+      if (error) {
+        console.error("Function error:", error);
+        throw new Error(error.message || "Failed to generate thumbnail");
+      }
 
-    // Add to history
-    const newItem: HistoryItem = {
-      id: Date.now().toString(),
-      imageUrl: randomImage,
-      title: text,
-      template,
-      createdAt: new Date(),
-    };
-    setHistory((prev) => [newItem, ...prev]);
-    
-    toast.success("Thumbnail generated successfully!");
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      if (!data?.imageUrl) {
+        throw new Error("No image was generated");
+      }
+
+      console.log("Thumbnail generated successfully!");
+      setCurrentImage(data.imageUrl);
+
+      // Add to history
+      const newItem: HistoryItem = {
+        id: Date.now().toString(),
+        imageUrl: data.imageUrl,
+        title: text,
+        template,
+        createdAt: new Date(),
+      };
+      setHistory((prev) => [newItem, ...prev]);
+
+      // Save to database (optional, for anonymous users)
+      try {
+        await supabase.from("thumbnails").insert([{
+          text_input: text,
+          image_url: data.imageUrl,
+          template_used: template,
+          overlay_text: overlayText || null,
+          text_position: textPosition,
+          text_style: JSON.parse(JSON.stringify(textStyle)),
+        }]);
+      } catch (dbError) {
+        console.log("Could not save to database:", dbError);
+      }
+
+      toast.success("Thumbnail generated successfully!");
+    } catch (error) {
+      console.error("Generation error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to generate thumbnail";
+      toast.error(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const handleRegenerate = () => {
     if (currentTitle) {
-      generateThumbnail(currentTitle, currentTemplate);
+      generateThumbnail(
+        currentTitle,
+        currentTemplate,
+        currentOverlayText,
+        currentTextPosition,
+        currentTextStyle
+      );
     }
   };
 
@@ -90,7 +153,7 @@ const Index = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-12"
+            className="text-center mb-10"
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -99,50 +162,26 @@ const Index = () => {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass mb-6"
             >
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-              <span className="text-sm text-muted-foreground">Powered by AI</span>
+              <span className="text-sm text-muted-foreground">Powered by Lovable AI</span>
             </motion.div>
-            
-            <h1 className="font-display text-4xl md:text-6xl font-bold mb-4">
+
+            <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">
               <span className="text-foreground">Create Stunning</span>
               <br />
               <span className="gradient-text">Thumbnails in Seconds</span>
             </h1>
-            
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Transform your video titles into eye-catching thumbnails with AI-powered 
-              generation. Choose from cinematic, gaming, tech, and more styles.
+
+            <p className="text-base text-muted-foreground max-w-xl mx-auto">
+              AI generates hyper-realistic backgrounds matching your exact description.
+              Add custom text overlays for the perfect click-worthy thumbnail.
             </p>
           </motion.div>
 
           {/* Main Content */}
-          <div className="grid lg:grid-cols-2 gap-8">
+          <div className="grid lg:grid-cols-2 gap-6">
             {/* Left: Input Form */}
             <div>
               <InputForm onGenerate={generateThumbnail} isLoading={isLoading} />
-              
-              {/* Quick Stats */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="mt-6 grid grid-cols-3 gap-4"
-              >
-                {[
-                  { label: "Generated", value: history.length.toString() },
-                  { label: "Templates", value: "5" },
-                  { label: "Avg Time", value: "3s" },
-                ].map((stat, index) => (
-                  <div
-                    key={stat.label}
-                    className="glass rounded-xl p-4 text-center"
-                  >
-                    <p className="text-2xl font-display font-bold gradient-text">
-                      {stat.value}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{stat.label}</p>
-                  </div>
-                ))}
-              </motion.div>
             </div>
 
             {/* Right: Preview */}
@@ -162,8 +201,35 @@ const Index = () => {
                   template={currentTemplate}
                   isLoading={isLoading}
                   onRegenerate={handleRegenerate}
+                  overlayText={currentOverlayText}
+                  textPosition={currentTextPosition}
+                  textStyle={currentTextStyle}
                 />
               )}
+
+              {/* Quick Stats */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="mt-4 grid grid-cols-3 gap-3"
+              >
+                {[
+                  { label: "Generated", value: history.length.toString() },
+                  { label: "Templates", value: "5" },
+                  { label: "AI Model", value: "Gemini" },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="glass rounded-xl p-3 text-center"
+                  >
+                    <p className="text-xl font-display font-bold gradient-text">
+                      {stat.value}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                  </div>
+                ))}
+              </motion.div>
             </div>
           </div>
 
@@ -172,23 +238,28 @@ const Index = () => {
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
-            className="mt-20 grid md:grid-cols-3 gap-6"
+            className="mt-16 grid md:grid-cols-4 gap-4"
           >
             {[
               {
-                icon: "🎨",
-                title: "Multiple Styles",
-                description: "Choose from minimal, gaming, tech, cinematic, or let AI decide",
+                icon: "🎯",
+                title: "100% Accurate",
+                description: "AI matches your description precisely",
               },
               {
-                icon: "⚡",
-                title: "Instant Generation",
-                description: "Get professional thumbnails in just a few seconds",
+                icon: "✨",
+                title: "Text Overlays",
+                description: "Add custom text with shadows & colors",
+              },
+              {
+                icon: "🎨",
+                title: "5 Styles",
+                description: "Minimal, Gaming, Tech, Cinematic, Custom",
               },
               {
                 icon: "📥",
-                title: "Easy Download",
-                description: "Download in high resolution, ready for YouTube and more",
+                title: "HD Download",
+                description: "1280x720 optimized for YouTube",
               },
             ].map((feature, index) => (
               <motion.div
@@ -196,15 +267,15 @@ const Index = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.7 + index * 0.1 }}
-                className="glass rounded-2xl p-6 text-center group hover:bg-card/80 transition-colors"
+                className="glass rounded-xl p-4 text-center group hover:bg-card/80 transition-colors"
               >
-                <div className="w-14 h-14 mx-auto mb-4 rounded-xl bg-muted/50 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                <div className="w-10 h-10 mx-auto mb-3 rounded-lg bg-muted/50 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
                   {feature.icon}
                 </div>
-                <h3 className="font-display font-semibold text-foreground mb-2">
+                <h3 className="font-display font-semibold text-sm text-foreground mb-1">
                   {feature.title}
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {feature.description}
                 </p>
               </motion.div>

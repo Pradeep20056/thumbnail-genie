@@ -1,15 +1,18 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Navbar } from "@/components/Navbar";
 import { InputForm } from "@/components/InputForm";
 import { PreviewCard } from "@/components/PreviewCard";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { BackgroundEffects } from "@/components/BackgroundEffects";
 import { Loader } from "@/components/Loader";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { type TemplateType } from "@/components/TemplateSelector";
 import { type TextPosition } from "@/components/TextOverlayControls";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface TextStyle {
   fontSize: number;
@@ -26,6 +29,8 @@ interface HistoryItem {
   createdAt: Date;
 }
 
+const CREDITS_PER_GENERATION = 10;
+
 const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
@@ -41,6 +46,37 @@ const Index = () => {
   });
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<"insufficient_credits" | "upgrade">("upgrade");
+
+  const { user, userStatus, refreshUserStatus } = useAuth();
+  const navigate = useNavigate();
+
+  const checkCredits = useCallback(() => {
+    if (!user) {
+      toast.error("Please sign in to generate thumbnails");
+      navigate("/auth");
+      return false;
+    }
+
+    if (!userStatus) {
+      return false;
+    }
+
+    // If user has active plan, allow generation
+    if (userStatus.hasActivePlan) {
+      return true;
+    }
+
+    // Check if user has enough credits
+    if (userStatus.credits < CREDITS_PER_GENERATION) {
+      setUpgradeReason("insufficient_credits");
+      setIsUpgradeModalOpen(true);
+      return false;
+    }
+
+    return true;
+  }, [user, userStatus, navigate]);
 
   const generateThumbnail = useCallback(async (
     text: string,
@@ -49,6 +85,11 @@ const Index = () => {
     textPosition: TextPosition,
     textStyle: TextStyle
   ) => {
+    // Check credits before generating
+    if (!checkCredits()) {
+      return;
+    }
+
     setIsLoading(true);
     setCurrentTitle(text);
     setCurrentTemplate(template);
@@ -57,6 +98,20 @@ const Index = () => {
     setCurrentTextStyle(textStyle);
 
     try {
+      // Deduct credits first
+      if (user && userStatus && !userStatus.hasActivePlan) {
+        const { data: deductResult, error: deductError } = await supabase.rpc(
+          "deduct_credits",
+          { _user_id: user.id, _amount: CREDITS_PER_GENERATION }
+        );
+
+        if (deductError || !deductResult) {
+          toast.error("Failed to process credits. Please try again.");
+          setIsLoading(false);
+          return;
+        }
+      }
+
       console.log("Calling generate-thumbnail function...");
       
       const { data, error } = await supabase.functions.invoke("generate-thumbnail", {
@@ -84,6 +139,9 @@ const Index = () => {
       console.log("Thumbnail generated successfully!");
       setCurrentImage(data.imageUrl);
 
+      // Refresh user status to update credits display
+      await refreshUserStatus();
+
       // Add to history
       const newItem: HistoryItem = {
         id: Date.now().toString(),
@@ -94,18 +152,22 @@ const Index = () => {
       };
       setHistory((prev) => [newItem, ...prev]);
 
-      // Save to database (optional, for anonymous users)
-      try {
-        await supabase.from("thumbnails").insert([{
-          text_input: text,
-          image_url: data.imageUrl,
-          template_used: template,
-          overlay_text: overlayText || null,
-          text_position: textPosition,
-          text_style: JSON.parse(JSON.stringify(textStyle)),
-        }]);
-      } catch (dbError) {
-        console.log("Could not save to database:", dbError);
+      // Save to database
+      if (user) {
+        try {
+          await supabase.from("thumbnails").insert([{
+            user_id: user.id,
+            text_input: text,
+            image_url: data.imageUrl,
+            template_used: template,
+            overlay_text: overlayText || null,
+            text_position: textPosition,
+            text_style: JSON.parse(JSON.stringify(textStyle)),
+            credits_used: CREDITS_PER_GENERATION,
+          }]);
+        } catch (dbError) {
+          console.log("Could not save to database:", dbError);
+        }
       }
 
       toast.success("Thumbnail generated successfully!");
@@ -116,7 +178,7 @@ const Index = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [user, userStatus, checkCredits, refreshUserStatus]);
 
   const handleRegenerate = () => {
     if (currentTitle) {
@@ -142,10 +204,18 @@ const Index = () => {
     toast.success("Thumbnail removed from history");
   };
 
+  const handleUpgradeClick = () => {
+    setUpgradeReason("upgrade");
+    setIsUpgradeModalOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
       <BackgroundEffects />
-      <Navbar onHistoryClick={() => setIsHistoryOpen(true)} />
+      <Navbar 
+        onHistoryClick={() => setIsHistoryOpen(true)} 
+        onUpgradeClick={handleUpgradeClick}
+      />
 
       <main className="relative z-10 pt-32 pb-16 px-4">
         <div className="max-w-6xl mx-auto">
@@ -175,6 +245,24 @@ const Index = () => {
               AI generates hyper-realistic backgrounds matching your exact description.
               Add custom text overlays for the perfect click-worthy thumbnail.
             </p>
+
+            {/* Sign up prompt for non-logged in users */}
+            {!user && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="mt-6"
+              >
+                <button
+                  onClick={() => navigate("/auth")}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-primary to-secondary text-primary-foreground font-semibold hover:opacity-90 transition-opacity"
+                >
+                  Get 50 Free Credits
+                  <span className="text-xs opacity-80">→</span>
+                </button>
+              </motion.div>
+            )}
           </motion.div>
 
           {/* Main Content */}
@@ -217,7 +305,7 @@ const Index = () => {
                 {[
                   { label: "Generated", value: history.length.toString() },
                   { label: "Templates", value: "5" },
-                  { label: "AI Model", value: "Gemini" },
+                  { label: "Cost", value: "10 credits" },
                 ].map((stat) => (
                   <div
                     key={stat.label}
@@ -291,6 +379,13 @@ const Index = () => {
         history={history}
         onSelect={handleHistorySelect}
         onDelete={handleHistoryDelete}
+      />
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+        reason={upgradeReason}
       />
     </div>
   );

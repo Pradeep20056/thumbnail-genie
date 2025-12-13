@@ -14,28 +14,76 @@ export type Database = {
   }
   public: {
     Tables: {
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          currency: string
+          id: string
+          payment_id: string | null
+          payment_provider: string
+          payment_status: string
+          plan_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          currency?: string
+          id?: string
+          payment_id?: string | null
+          payment_provider?: string
+          payment_status?: string
+          plan_type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          currency?: string
+          id?: string
+          payment_id?: string | null
+          payment_provider?: string
+          payment_status?: string
+          plan_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
           created_at: string
+          credits: number
           display_name: string | null
           id: string
+          plan_expiry: string | null
+          plan_type: string
           updated_at: string
           user_id: string
         }
         Insert: {
           avatar_url?: string | null
           created_at?: string
+          credits?: number
           display_name?: string | null
           id?: string
+          plan_expiry?: string | null
+          plan_type?: string
           updated_at?: string
           user_id: string
         }
         Update: {
           avatar_url?: string | null
           created_at?: string
+          credits?: number
           display_name?: string | null
           id?: string
+          plan_expiry?: string | null
+          plan_type?: string
           updated_at?: string
           user_id?: string
         }
@@ -44,6 +92,7 @@ export type Database = {
       thumbnails: {
         Row: {
           created_at: string
+          credits_used: number | null
           id: string
           image_url: string | null
           overlay_text: string | null
@@ -55,6 +104,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          credits_used?: number | null
           id?: string
           image_url?: string | null
           overlay_text?: string | null
@@ -66,6 +116,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          credits_used?: number | null
           id?: string
           image_url?: string | null
           overlay_text?: string | null
@@ -77,15 +128,56 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      deduct_credits: {
+        Args: { _amount: number; _user_id: string }
+        Returns: boolean
+      }
+      get_user_status: {
+        Args: { _user_id: string }
+        Returns: {
+          credits: number
+          has_active_plan: boolean
+          plan_expiry: string
+          plan_type: string
+        }[]
+      }
+      has_active_plan: { Args: { _user_id: string }; Returns: boolean }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -212,6 +304,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const

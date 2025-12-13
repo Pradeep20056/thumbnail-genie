@@ -1,12 +1,31 @@
 import { motion } from "framer-motion";
-import { Sparkles, History, Settings } from "lucide-react";
+import { Sparkles, History, Settings, LogIn, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CreditBadge } from "@/components/CreditBadge";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface NavbarProps {
   onHistoryClick?: () => void;
+  onUpgradeClick?: () => void;
 }
 
-export const Navbar = ({ onHistoryClick }: NavbarProps) => {
+export const Navbar = ({ onHistoryClick, onUpgradeClick }: NavbarProps) => {
+  const { user, userStatus, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/");
+  };
+
   return (
     <motion.nav
       initial={{ y: -20, opacity: 0 }}
@@ -28,23 +47,77 @@ export const Navbar = ({ onHistoryClick }: NavbarProps) => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onHistoryClick}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <History className="w-4 h-4 mr-2" />
-              History
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <Settings className="w-4 h-4" />
-            </Button>
+          <div className="flex items-center gap-3">
+            {/* Credit Badge - Only show for logged in users */}
+            {user && userStatus && (
+              <button onClick={onUpgradeClick} className="cursor-pointer">
+                <CreditBadge />
+              </button>
+            )}
+
+            {user ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onHistoryClick}
+                  className="text-muted-foreground hover:text-foreground hidden sm:flex"
+                >
+                  <History className="w-4 h-4 mr-2" />
+                  History
+                </Button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <User className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <div className="px-2 py-1.5">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {user.email}
+                      </p>
+                      {userStatus && (
+                        <p className="text-xs text-muted-foreground">
+                          {userStatus.hasActivePlan
+                            ? `${userStatus.planType} plan`
+                            : `${userStatus.credits} credits`}
+                        </p>
+                      )}
+                    </div>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={onHistoryClick} className="sm:hidden">
+                      <History className="w-4 h-4 mr-2" />
+                      History
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onUpgradeClick}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Upgrade Plan
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => navigate("/auth")}
+                className="bg-gradient-to-r from-primary to-secondary text-primary-foreground"
+              >
+                <LogIn className="w-4 h-4 mr-2" />
+                Sign In
+              </Button>
+            )}
           </div>
         </div>
       </div>

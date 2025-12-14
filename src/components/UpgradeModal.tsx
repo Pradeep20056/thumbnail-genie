@@ -1,12 +1,21 @@
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Check, Zap, Crown, Sparkles } from "lucide-react";
+import { X, Check, Zap, Crown, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   reason?: "insufficient_credits" | "upgrade";
+}
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
 }
 
 const plans = [
@@ -64,12 +73,95 @@ const plans = [
 ];
 
 export const UpgradeModal = ({ isOpen, onClose, reason }: UpgradeModalProps) => {
-  const { userStatus } = useAuth();
+  const { userStatus, refreshUserStatus } = useAuth();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
-  const handleUpgrade = (planId: string) => {
-    // This will be implemented with Stripe in the next phase
-    console.log("Upgrading to:", planId);
-    // TODO: Implement Stripe checkout
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleUpgrade = async (planId: string) => {
+    if (planId === "free") return;
+
+    setLoadingPlan(planId);
+
+    try {
+      const scriptLoaded = await loadRazorpayScript();
+      if (!scriptLoaded) {
+        throw new Error("Failed to load payment gateway");
+      }
+
+      const { data: orderData, error: orderError } = await supabase.functions.invoke(
+        "create-razorpay-order",
+        { body: { plan_type: planId } }
+      );
+
+      if (orderError || !orderData) {
+        throw new Error(orderError?.message || "Failed to create order");
+      }
+
+      const options = {
+        key: orderData.key_id,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "ThumbCraft AI",
+        description: `${planId.charAt(0).toUpperCase() + planId.slice(1)} Plan Subscription`,
+        order_id: orderData.order_id,
+        handler: async (response: any) => {
+          try {
+            const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
+              "verify-razorpay-payment",
+              {
+                body: {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  plan_type: planId,
+                },
+              }
+            );
+
+            if (verifyError || !verifyData?.success) {
+              throw new Error(verifyError?.message || "Payment verification failed");
+            }
+
+            await refreshUserStatus();
+            toast.success("Payment successful! Your plan has been upgraded.");
+            onClose();
+          } catch (error: any) {
+            console.error("Payment verification error:", error);
+            toast.error(error.message || "Payment verification failed");
+          }
+        },
+        prefill: {},
+        theme: {
+          color: "#7c3aed",
+        },
+        modal: {
+          ondismiss: () => {
+            setLoadingPlan(null);
+          },
+        },
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    } catch (error: any) {
+      console.error("Payment error:", error);
+      toast.error(error.message || "Failed to initiate payment");
+    } finally {
+      setLoadingPlan(null);
+    }
   };
 
   return (
@@ -138,6 +230,7 @@ export const UpgradeModal = ({ isOpen, onClose, reason }: UpgradeModalProps) => 
                   const isCurrentPlan =
                     userStatus?.planType === plan.id ||
                     (plan.id === "free" && !userStatus?.hasActivePlan);
+                  const isLoading = loadingPlan === plan.id;
 
                   return (
                     <motion.div
@@ -210,10 +303,16 @@ export const UpgradeModal = ({ isOpen, onClose, reason }: UpgradeModalProps) => 
                             : ""
                         }`}
                         variant={plan.popular ? "default" : "outline"}
-                        disabled={plan.disabled || isCurrentPlan}
+                        disabled={plan.disabled || isCurrentPlan || isLoading}
                         onClick={() => handleUpgrade(plan.id)}
                       >
-                        {isCurrentPlan ? "Current Plan" : plan.cta}
+                        {isLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : isCurrentPlan ? (
+                          "Current Plan"
+                        ) : (
+                          plan.cta
+                        )}
                       </Button>
                     </motion.div>
                   );

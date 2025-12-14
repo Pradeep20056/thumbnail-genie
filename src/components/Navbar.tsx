@@ -91,6 +91,10 @@ export const Navbar = ({ onHistoryClick, onUpgradeClick }: NavbarProps) => {
                       )}
                     </div>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate("/dashboard")}>
+                      <User className="w-4 h-4 mr-2" />
+                      Dashboard
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={onHistoryClick} className="sm:hidden">
                       <History className="w-4 h-4 mr-2" />
                       History

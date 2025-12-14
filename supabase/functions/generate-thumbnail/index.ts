@@ -55,59 +55,75 @@ Generate a stunning, eye-catching background that perfectly captures the essence
 
     console.log("Generated prompt:", imagePrompt);
 
-    // Use Gemini image generation model
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image-preview",
-        messages: [
-          {
-            role: "user",
-            content: imagePrompt
-          }
-        ],
-        modalities: ["image", "text"]
-      }),
-    });
+    // Try image generation with retry logic
+    let imageUrl: string | undefined;
+    let lastError: string = "";
+    
+    for (let attempt = 0; attempt < 2; attempt++) {
+      console.log(`Image generation attempt ${attempt + 1}`);
+      
+      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-image-preview",
+          messages: [
+            {
+              role: "user",
+              content: imagePrompt
+            }
+          ],
+          modalities: ["image", "text"]
+        }),
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ 
-          error: "Rate limit exceeded. Please wait a moment and try again." 
-        }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("AI gateway error:", response.status, errorText);
+        
+        if (response.status === 429) {
+          return new Response(JSON.stringify({ 
+            error: "Rate limit exceeded. Please wait a moment and try again." 
+          }), {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        
+        if (response.status === 402) {
+          return new Response(JSON.stringify({ 
+            error: "Usage limit reached. Please add credits to continue." 
+          }), {
+            status: 402,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        
+        lastError = `AI gateway error: ${response.status}`;
+        continue;
       }
+
+      const data = await response.json();
+      console.log("AI response received:", JSON.stringify(data).substring(0, 500));
+
+      // Extract the image from the response
+      imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
       
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: "Usage limit reached. Please add credits to continue." 
-        }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (imageUrl) {
+        console.log("Image generated successfully");
+        break;
+      } else {
+        console.error("No image in response, retrying...");
+        lastError = "No image generated in response";
       }
-      
-      throw new Error(`AI gateway error: ${response.status}`);
     }
-
-    const data = await response.json();
-    console.log("AI response received successfully");
-
-    // Extract the image from the response
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
     
     if (!imageUrl) {
-      console.error("No image in response:", JSON.stringify(data));
-      throw new Error("No image generated");
+      console.error("Failed to generate image after retries:", lastError);
+      throw new Error("Failed to generate image. Please try again.");
     }
 
     return new Response(JSON.stringify({ 

@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
-import { Sparkles, History, Settings, LogIn, LogOut, User } from "lucide-react";
+import { Sparkles, History, Settings, LogIn, LogOut, User, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreditBadge } from "@/components/CreditBadge";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,15 +36,30 @@ export const Navbar = ({ onHistoryClick, onUpgradeClick }: NavbarProps) => {
       <div className="max-w-7xl mx-auto">
         <div className="glass rounded-2xl px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="font-display font-bold text-lg text-foreground">
-                ThumbGen
-              </h1>
-              <p className="text-xs text-muted-foreground">AI Thumbnail Generator</p>
-            </div>
+            <Link to="/" className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="font-display font-bold text-lg text-foreground">
+                  ThumbGen
+                </h1>
+                <p className="text-xs text-muted-foreground">AI Thumbnail Generator</p>
+              </div>
+            </Link>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="hidden md:flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/pricing")}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Crown className="w-4 h-4 mr-2" />
+              Pricing
+            </Button>
           </div>
 
           <div className="flex items-center gap-3">

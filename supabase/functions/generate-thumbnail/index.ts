@@ -16,9 +16,9 @@ serve(async (req) => {
     
     console.log("Generating thumbnail for:", { textInput, template, overlayText, textPosition });
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured");
     }
 
     // Build a highly detailed prompt based on template and user input
@@ -55,34 +55,40 @@ Generate a stunning, eye-catching background that perfectly captures the essence
 
     console.log("Generated prompt:", imagePrompt);
 
-    // Try image generation with retry logic
+    // Call Google Gemini API directly for image generation
     let imageUrl: string | undefined;
     let lastError: string = "";
     
     for (let attempt = 0; attempt < 2; attempt++) {
       console.log(`Image generation attempt ${attempt + 1}`);
       
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-image-preview",
-          messages: [
-            {
-              role: "user",
-              content: imagePrompt
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: imagePrompt
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              responseModalities: ["TEXT", "IMAGE"]
             }
-          ],
-          modalities: ["image", "text"]
-        }),
-      });
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
+        console.error("Gemini API error:", response.status, errorText);
         
         if (response.status === 429) {
           return new Response(JSON.stringify({ 
@@ -93,27 +99,36 @@ Generate a stunning, eye-catching background that perfectly captures the essence
           });
         }
         
-        if (response.status === 402) {
+        if (response.status === 403) {
           return new Response(JSON.stringify({ 
-            error: "Usage limit reached. Please add credits to continue." 
+            error: "API key invalid or quota exceeded. Please check your Gemini API key." 
           }), {
-            status: 402,
+            status: 403,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
         
-        lastError = `AI gateway error: ${response.status}`;
+        lastError = `Gemini API error: ${response.status} - ${errorText}`;
         continue;
       }
 
       const data = await response.json();
-      console.log("AI response received:", JSON.stringify(data).substring(0, 500));
+      console.log("Gemini response received");
 
-      // Extract the image from the response
-      imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+      // Extract the image from Gemini response
+      const parts = data.candidates?.[0]?.content?.parts;
+      if (parts) {
+        for (const part of parts) {
+          if (part.inlineData?.mimeType?.startsWith("image/")) {
+            // Convert base64 to data URL
+            imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            console.log("Image generated successfully");
+            break;
+          }
+        }
+      }
       
       if (imageUrl) {
-        console.log("Image generated successfully");
         break;
       } else {
         console.error("No image in response, retrying...");

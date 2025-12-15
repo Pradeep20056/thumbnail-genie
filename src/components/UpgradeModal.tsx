@@ -10,6 +10,7 @@ interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
   reason?: "insufficient_credits" | "upgrade";
+  defaultPlan?: "weekly" | "monthly";
 }
 
 declare global {

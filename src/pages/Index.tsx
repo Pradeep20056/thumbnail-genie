@@ -8,6 +8,7 @@ import { HistoryPanel } from "@/components/HistoryPanel";
 import { BackgroundEffects } from "@/components/BackgroundEffects";
 import { Loader } from "@/components/Loader";
 import { UpgradeModal } from "@/components/UpgradeModal";
+import { ImageUploadEditor } from "@/components/ImageUploadEditor";
 import { type TemplateType } from "@/components/TemplateSelector";
 import { type TextPosition } from "@/components/TextOverlayControls";
 import { toast } from "sonner";
@@ -321,6 +322,31 @@ const Index = () => {
             </div>
           </div>
 
+          {/* Image Upload Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="mt-16"
+          >
+            <div className="text-center mb-8">
+              <h2 className="font-display text-2xl font-bold text-foreground mb-2">
+                Or Upload Your Own Image
+              </h2>
+              <p className="text-muted-foreground">
+                Upload any image and enhance it with AI for the perfect thumbnail
+              </p>
+            </div>
+            <div className="max-w-xl mx-auto">
+              <ImageUploadEditor
+                onImageReady={(imageUrl) => {
+                  setCurrentImage(imageUrl);
+                  toast.success("Image ready to use!");
+                }}
+              />
+            </div>
+          </motion.div>
+
           {/* Features Section */}
           <motion.div
             initial={{ opacity: 0, y: 40 }}
@@ -340,9 +366,9 @@ const Index = () => {
                 description: "Add custom text with shadows & colors",
               },
               {
-                icon: "🎨",
-                title: "5 Styles",
-                description: "Minimal, Gaming, Tech, Cinematic, Custom",
+                icon: "📷",
+                title: "Upload & Edit",
+                description: "Upload your images and enhance with AI",
               },
               {
                 icon: "📥",

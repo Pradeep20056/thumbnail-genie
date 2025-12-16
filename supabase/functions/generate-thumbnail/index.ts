@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { HfInference } from 'https://esm.sh/@huggingface/inference@2.3.2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,9 +17,9 @@ serve(async (req) => {
     
     console.log("Generating thumbnail for:", { textInput, template, overlayText, textPosition });
 
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+    const HF_TOKEN = Deno.env.get("HUGGING_FACE_ACCESS_TOKEN");
+    if (!HF_TOKEN) {
+      throw new Error("HUGGING_FACE_ACCESS_TOKEN is not configured");
     }
 
     // Build a highly detailed prompt based on template and user input
@@ -32,114 +33,28 @@ serve(async (req) => {
 
     const styleGuide = templateStyles[template] || templateStyles.custom;
 
-    // Create a very detailed prompt for maximum accuracy
-    const imagePrompt = `Create an ultra-realistic, professional YouTube thumbnail background image.
-
-SUBJECT/TOPIC: "${textInput}"
-
-STYLE: ${styleGuide}
-
-REQUIREMENTS:
-- The image must DIRECTLY and ACCURATELY represent the topic: "${textInput}"
-- Ultra high resolution, 4K quality, photorealistic rendering
-- Cinematic composition with rule of thirds
-- Dramatic lighting with depth and shadows
-- Rich vibrant colors that pop
-- Professional photography quality
-- NO TEXT, NO WORDS, NO LETTERS in the image
-- Leave space for text overlay (especially ${textPosition || 'center'} area)
-- 16:9 aspect ratio optimized for YouTube thumbnails
-- The visual content must be 100% relevant to: "${textInput}"
-
-Generate a stunning, eye-catching background that perfectly captures the essence of "${textInput}" with ${styleGuide}. The image should make viewers want to click immediately.`;
+    // Create a detailed prompt for SDXL-Turbo
+    const imagePrompt = `${textInput}, ${styleGuide}, ultra high resolution, 4K quality, photorealistic, cinematic composition, dramatic lighting, vibrant colors, professional YouTube thumbnail background, no text, no words, no letters, 16:9 aspect ratio`;
 
     console.log("Generated prompt:", imagePrompt);
 
-    // Call Google Gemini API directly for image generation
-    let imageUrl: string | undefined;
-    let lastError: string = "";
-    
-    for (let attempt = 0; attempt < 2; attempt++) {
-      console.log(`Image generation attempt ${attempt + 1}`);
-      
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: imagePrompt
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              responseModalities: ["TEXT", "IMAGE"]
-            }
-          }),
-        }
-      );
+    // Initialize HuggingFace Inference
+    const hf = new HfInference(HF_TOKEN);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Gemini API error:", response.status, errorText);
-        
-        if (response.status === 429) {
-          return new Response(JSON.stringify({ 
-            error: "Rate limit exceeded. Please wait a moment and try again." 
-          }), {
-            status: 429,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        
-        if (response.status === 403) {
-          return new Response(JSON.stringify({ 
-            error: "API key invalid or quota exceeded. Please check your Gemini API key." 
-          }), {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        
-        lastError = `Gemini API error: ${response.status} - ${errorText}`;
-        continue;
-      }
+    console.log("Calling HuggingFace stabilityai/sdxl-turbo model...");
 
-      const data = await response.json();
-      console.log("Gemini response received");
+    // Generate image using stabilityai/sdxl-turbo
+    const image = await hf.textToImage({
+      inputs: imagePrompt,
+      model: 'stabilityai/sdxl-turbo',
+    });
 
-      // Extract the image from Gemini response
-      const parts = data.candidates?.[0]?.content?.parts;
-      if (parts) {
-        for (const part of parts) {
-          if (part.inlineData?.mimeType?.startsWith("image/")) {
-            // Convert base64 to data URL
-            imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-            console.log("Image generated successfully");
-            break;
-          }
-        }
-      }
-      
-      if (imageUrl) {
-        break;
-      } else {
-        console.error("No image in response, retrying...");
-        lastError = "No image generated in response";
-      }
-    }
-    
-    if (!imageUrl) {
-      console.error("Failed to generate image after retries:", lastError);
-      throw new Error("Failed to generate image. Please try again.");
-    }
+    // Convert the blob to a base64 string
+    const arrayBuffer = await image.arrayBuffer();
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const imageUrl = `data:image/png;base64,${base64}`;
+
+    console.log("Image generated successfully with HuggingFace");
 
     return new Response(JSON.stringify({ 
       imageUrl,
@@ -154,8 +69,21 @@ Generate a stunning, eye-catching background that perfectly captures the essence
 
   } catch (error) {
     console.error("Error generating thumbnail:", error);
+    
+    const errorMessage = error instanceof Error ? error.message : "Failed to generate thumbnail";
+    
+    // Check for rate limit errors
+    if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
+      return new Response(JSON.stringify({ 
+        error: "Rate limit exceeded. Please wait a moment and try again." 
+      }), {
+        status: 429,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    
     return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : "Failed to generate thumbnail" 
+      error: errorMessage
     }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

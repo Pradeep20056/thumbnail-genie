@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { HfInference } from 'https://esm.sh/@huggingface/inference@2.3.2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,20 +36,51 @@ serve(async (req) => {
     const imagePrompt = `${textInput}, ${styleGuide}, ultra high resolution, 4K quality, photorealistic, cinematic composition, dramatic lighting, vibrant colors, professional YouTube thumbnail background, no text, no words, no letters, 16:9 aspect ratio`;
 
     console.log("Generated prompt:", imagePrompt);
+    console.log("Calling HuggingFace stabilityai/sdxl-turbo model via router...");
 
-    // Initialize HuggingFace Inference
-    const hf = new HfInference(HF_TOKEN);
+    // Use the new HuggingFace router endpoint
+    const response = await fetch(
+      "https://router.huggingface.co/hf-inference/models/stabilityai/sdxl-turbo",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${HF_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inputs: imagePrompt,
+        }),
+      }
+    );
 
-    console.log("Calling HuggingFace stabilityai/sdxl-turbo model...");
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("HuggingFace API error:", response.status, errorText);
+      
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ 
+          error: "Rate limit exceeded. Please wait a moment and try again." 
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      if (response.status === 401 || response.status === 403) {
+        return new Response(JSON.stringify({ 
+          error: "API key invalid or unauthorized. Please check your HuggingFace API key." 
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    // Generate image using stabilityai/sdxl-turbo
-    const image = await hf.textToImage({
-      inputs: imagePrompt,
-      model: 'stabilityai/sdxl-turbo',
-    });
+      throw new Error(`HuggingFace API error: ${response.status} - ${errorText}`);
+    }
 
-    // Convert the blob to a base64 string
-    const arrayBuffer = await image.arrayBuffer();
+    // Get the image blob
+    const imageBlob = await response.blob();
+    const arrayBuffer = await imageBlob.arrayBuffer();
     const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     const imageUrl = `data:image/png;base64,${base64}`;
 
@@ -71,16 +101,6 @@ serve(async (req) => {
     console.error("Error generating thumbnail:", error);
     
     const errorMessage = error instanceof Error ? error.message : "Failed to generate thumbnail";
-    
-    // Check for rate limit errors
-    if (errorMessage.includes("rate limit") || errorMessage.includes("429")) {
-      return new Response(JSON.stringify({ 
-        error: "Rate limit exceeded. Please wait a moment and try again." 
-      }), {
-        status: 429,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
     
     return new Response(JSON.stringify({ 
       error: errorMessage

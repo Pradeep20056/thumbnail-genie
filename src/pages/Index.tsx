@@ -54,13 +54,14 @@ const Index = () => {
   const navigate = useNavigate();
 
   const checkCredits = useCallback(() => {
-    // Allow unauthenticated testing
     if (!user) {
-      return true; // Allow testing without login
+      toast.error("Please sign in to generate thumbnails");
+      navigate("/auth");
+      return false;
     }
 
     if (!userStatus) {
-      return true; // Allow if status not loaded yet
+      return false;
     }
 
     // If user has active plan, allow generation
@@ -76,7 +77,7 @@ const Index = () => {
     }
 
     return true;
-  }, [user, userStatus]);
+  }, [user, userStatus, navigate]);
 
   const generateThumbnail = useCallback(async (
     text: string,
